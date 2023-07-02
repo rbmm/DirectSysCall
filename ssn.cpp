@@ -3,22 +3,12 @@
 
 struct SSN  
 {
-	ULONG Address, Name;
+	ULONG Address, hash;
 
 	static int __cdecl Compare(void const* pa, void const* pb)
 	{
 		ULONG a = reinterpret_cast<const SSN*>(pa)->Address;
 		ULONG b = reinterpret_cast<const SSN*>(pb)->Address;
-
-		if (a < b) return -1;
-		if (a > b) return +1;
-		return 0;
-	}
-
-	static int __cdecl Compare2(void const* pa, void const* pb)
-	{
-		ULONG a = reinterpret_cast<const SSN*>(pa)->Name;
-		ULONG b = reinterpret_cast<const SSN*>(pb)->Name;
 
 		if (a < b) return -1;
 		if (a > b) return +1;
@@ -106,51 +96,36 @@ BOOL CreateSSNTable(_In_ PVOID ImageBase, _In_ PIMAGE_EXPORT_DIRECTORY pied, _Ou
 
 		if (ULONG n = GetZwCount(ImageBase, NumberOfNames, AddressOfNames))
 		{
-			if (SSN* q = new SSN[n])
+			if (SSN* p = new SSN[n])
 			{
-				SSN* p = q;
-
-				ULONG rva, m = n;
-				PCSTR name;
+				*pN = n, *ppTable = p;
 
 				do 
 				{
-					rva = *AddressOfNames++;
-					name = RtlOffsetToPointer(ImageBase, rva);
+					ULONG rva = *AddressOfNames++;
+					PCSTR name = RtlOffsetToPointer(ImageBase, rva);
 					USHORT o = *AddressOfNameOrdinals++;
 
-					if (name[0] == 'Z' && name[1] == 'w')
+					if (*name++ == 'Z' && *name++ == 'w')
 					{
-						if (!m--)
+						if (!n--)
 						{
 							break;
 						}
 
-						p->Name = rva + 2, p++->Address = AddressOfFunctions[o];
+						p->hash = HashString(name), p++->Address = AddressOfFunctions[o];
 					}
 
 				} while (--NumberOfNames);
 
 				if (!NumberOfNames)
 				{
-					qsort(p = q, n, sizeof(SSN), SSN::Compare);
-
-					*pN = n, *ppTable = p;
-
-					m = 0;
-					do 
-					{
-						p->Address = m++;
-						name = RtlOffsetToPointer(ImageBase, p->Name);
-						p++->Name = HashString(name);
-					} while (--n);
-
-					qsort(q, *pN, sizeof(SSN), SSN::Compare2);
+					qsort(*ppTable, *pN, sizeof(SSN), SSN::Compare);
 
 					return TRUE;
 				}
 
-				delete [] q;
+				delete [] *ppTable;
 			}
 		}
 	}
@@ -232,19 +207,17 @@ ULONG __fastcall SyscallNum(_In_ ULONG crc)
 	__pragma(message("; " __FUNCSIG__ "\r\nextern " __FUNCDNAME__ " : PROC"));
 #endif
 
-	ULONG n = 0, N = _G_N, i;
+	ULONG i = 0, N = _G_N;
+	SSN* pTable = _G_pTable;
 	do 
 	{
-		ULONG Name = _G_pTable[i = (n + N) >> 1].Name;
-
-		if (Name == crc)
+		if (pTable++->hash == crc)
 		{
-			return _G_pTable[i].Address;
+			return i;
 		}
 
-		Name < crc ? n = i + 1 : N = i;
+	} while (i++, --N);
 
-	} while (n < N);
-
+	__debugbreak();
 	return 0;
 }
